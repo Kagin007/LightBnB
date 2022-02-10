@@ -114,14 +114,57 @@ exports.getAllReservations = getAllReservations;
  * @return {Promise<[{}]>}  A promise to the properties.
  */
 const getAllProperties = (options, limit = 10) => {
-  return pool
-    .query(`SELECT * FROM properties LIMIT $1`, [limit])
-    .then((result) => {
-      return result.rows
-    })    
-    .catch((err) => {
-      return err.message
-    });
+  const queryParams = [];
+  // 2
+  let queryString = `
+  SELECT properties.*, avg(property_reviews.rating) as average_rating
+  FROM properties
+  JOIN property_reviews ON properties.id = property_id
+  `;
+
+  // 3
+  if (options.city) {
+    queryParams.push(`%${options.city}%`);
+    queryString += queryParams.length > 1 && 'AND' || 'WHERE ';
+    queryString += `city LIKE $${queryParams.length} `;
+  }
+
+  if (options.minimum_price_per_night && options.maximum_price_per_night) {
+    const convertToPennies = (pennys) => {
+      return pennys * 100
+    }
+    queryParams.push(convertToPennies(options.minimum_price_per_night))
+    queryString += queryParams.length > 1 && ' AND' || 'WHERE ';
+    queryString += ` cost_per_night > $${queryParams.length}`
+    queryParams.push(convertToPennies(options.maximum_price_per_night))
+    queryString += ` AND cost_per_night < $${queryParams.length}`;
+  }
+
+  if (options.minimum_rating) {
+    queryParams.push(Number(options.minimum_rating))
+    queryString += queryParams.length > 1 && 'AND' || 'WHERE ';
+    queryString += ` rating >= $${queryParams.length}`
+  }
+
+  if (options.owner_id) {
+    queryParams.push(`%${options.owner_id}%`);
+    queryString += queryParams.length > 1 && 'AND' || 'WHERE ';
+    queryString += ` user LIKE $${queryParams.length}`;
+  }
+
+  // 4
+  queryParams.push(limit);
+  queryString += `
+  GROUP BY properties.id
+  ORDER BY cost_per_night
+  LIMIT $${queryParams.length};
+  `;
+
+  // 5
+  console.log(queryString, queryParams);
+
+  // 6
+  return pool.query(queryString, queryParams).then((res) => res.rows);
 };
 
 exports.getAllProperties = getAllProperties;
